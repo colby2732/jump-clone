@@ -5,7 +5,7 @@ from settings import (
     MIN_JUMP_POWER, MAX_JUMP_POWER, HORIZONTAL_JUMP_SPEED,
     PLAYER_WIDTH, PLAYER_HEIGHT, PLAYER_GROUND_SPEED,
     PLAYER_COLOR, PLAYER_OUTLINE, CHARGE_BAR_BG, CHARGE_BAR_FG,
-    CHARGE_BAR_MAX, WORLD_WIDTH, WALL_THICKNESS,
+    CHARGE_BAR_MAX, WORLD_WIDTH, WALL_THICKNESS, CAPE_COLOR,
 )
 
 # Character colors
@@ -174,6 +174,8 @@ class Player:
 
     def _draw_standing(self, surface, cx, base_y):
         f = self.facing
+        # Cape
+        pygame.draw.rect(surface, CAPE_COLOR, (cx - 8, base_y - 28, 16, 24))
         # Shoes
         pygame.draw.rect(surface, SHOE_COLOR, (cx - 6, base_y - 4, 5, 4))
         pygame.draw.rect(surface, SHOE_COLOR, (cx + 1, base_y - 4, 5, 4))
@@ -193,6 +195,8 @@ class Player:
 
     def _draw_walking(self, surface, cx, base_y):
         f = self.facing
+        # Cape
+        pygame.draw.rect(surface, CAPE_COLOR, (cx - 8, base_y - 28, 16, 24))
         # Leg animation — swing based on timer
         leg_swing = int(math.sin(self.anim_timer * 2) * 4)
 
@@ -228,6 +232,8 @@ class Player:
         charge_pct = self.charge / MAX_CHARGE
         crouch = int(charge_pct * 6)  # Crouch deeper with more charge
 
+        # Cape (tucked)
+        pygame.draw.rect(surface, CAPE_COLOR, (cx - 8, base_y - 26 + crouch, 16, 22))
         # Shoes (wider stance)
         pygame.draw.rect(surface, SHOE_COLOR, (cx - 7, base_y - 4, 5, 4))
         pygame.draw.rect(surface, SHOE_COLOR, (cx + 2, base_y - 4, 5, 4))
@@ -250,6 +256,13 @@ class Player:
     def _draw_airborne(self, surface, cx, base_y):
         f = self.facing
         going_up = self.vel_y < 0
+
+        # Cape (flowing back)
+        if f == 1:  # Facing right
+            cape_points = [(cx - 6, base_y - 22), (cx - 20, base_y - 18), (cx - 20, base_y - 4)]
+        else:  # Facing left
+            cape_points = [(cx + 6, base_y - 22), (cx + 20, base_y - 18), (cx + 20, base_y - 4)]
+        pygame.draw.polygon(surface, CAPE_COLOR, cape_points)
 
         if going_up:
             # Legs tucked up

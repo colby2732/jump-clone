@@ -17,6 +17,13 @@ TEXT_COLOR = (200, 200, 210)
 GROUND_COLOR = (60, 70, 60)
 WALL_COLOR = (50, 50, 65)
 PEAK_COLOR = (255, 215, 0)
+CAPE_COLOR = (180, 30, 30)
+
+# --- Cyberpunk Background ---
+CYBER_GREEN = (0, 255, 100)
+CYBER_PURPLE = (150, 0, 255)
+CYBER_BLUE = (0, 100, 255)
+CYBER_RED = (255, 50, 50)
 
 # --- Physics ---
 GRAVITY = 0.55

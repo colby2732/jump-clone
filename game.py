@@ -2,7 +2,8 @@ import pygame
 import sys
 from settings import (
     SCREEN_WIDTH, SCREEN_HEIGHT, FPS, TITLE, BG_COLOR,
-    TEXT_COLOR, WORLD_HEIGHT, PEAK_COLOR,
+    TEXT_COLOR, WORLD_HEIGHT, PEAK_COLOR, CYBER_GREEN,
+    CYBER_PURPLE, CYBER_BLUE, CYBER_RED,
 )
 from player import Player
 from level import Level
@@ -91,15 +92,40 @@ class Game:
         pygame.display.flip()
 
     def _draw_background(self):
-        # Subtle parallax lines to show depth
-        for i in range(0, SCREEN_HEIGHT, 80):
+        # Cyberpunk cityscape background
+        # Fill with dark gradient
+        for y in range(SCREEN_HEIGHT):
+            depth = y / SCREEN_HEIGHT
+            shade = int(15 + depth * 10)
+            pygame.draw.line(self.screen, (shade, shade // 2, shade + 10), (0, y), (SCREEN_WIDTH, y))
+
+        # Distant buildings (parallax)
+        building_colors = [CYBER_GREEN, CYBER_PURPLE, CYBER_BLUE, CYBER_RED]
+        for i in range(10):
+            x = (i * 120 + self.camera.y * 0.1) % (SCREEN_WIDTH + 100) - 50
+            height = 100 + (i % 3) * 50
+            color = building_colors[i % len(building_colors)]
+            pygame.draw.rect(self.screen, color, (x, SCREEN_HEIGHT - height, 80, height))
+            # Glow effect
+            pygame.draw.rect(self.screen, (color[0]//4, color[1]//4, color[2]//4), (x-2, SCREEN_HEIGHT - height - 2, 84, height + 4), 2)
+
+        # Neon grid lines
+        for i in range(0, SCREEN_WIDTH, 100):
+            pygame.draw.line(self.screen, CYBER_GREEN, (i, 0), (i, SCREEN_HEIGHT), 1)
+        for i in range(0, SCREEN_HEIGHT, 100):
             y_world = self.camera.y + i
-            shade = max(10, 25 - int((y_world / WORLD_HEIGHT) * 15))
-            pygame.draw.line(
-                self.screen,
-                (shade, shade, shade + 5),
-                (0, i), (SCREEN_WIDTH, i)
-            )
+            alpha = max(50, 150 - int((y_world / WORLD_HEIGHT) * 100))
+            color = (CYBER_PURPLE[0], CYBER_PURPLE[1], CYBER_PURPLE[2], alpha) if alpha < 255 else CYBER_PURPLE
+            # Pygame doesn't support alpha in draw.line directly, so use solid
+            pygame.draw.line(self.screen, CYBER_PURPLE, (0, i), (SCREEN_WIDTH, i), 1)
+
+        # Floating particles
+        import random
+        random.seed(42)
+        for i in range(20):
+            x = (random.randint(0, SCREEN_WIDTH) + self.camera.y * 0.05) % SCREEN_WIDTH
+            y = random.randint(0, SCREEN_HEIGHT)
+            pygame.draw.circle(self.screen, CYBER_BLUE, (x, y), 1)
 
     def _draw_hud(self):
         # Height indicator
