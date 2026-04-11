@@ -1,13 +1,18 @@
 import pygame
 import sys
+import random
 from settings import (
     SCREEN_WIDTH, SCREEN_HEIGHT, FPS, TITLE, BG_COLOR,
     TEXT_COLOR, WORLD_HEIGHT, PEAK_COLOR, CYBER_GREEN,
     CYBER_PURPLE, CYBER_BLUE, CYBER_RED,
+    WALL_THICKNESS, WORLD_WIDTH, SWORD_COLOR, ENERGY_WAVE_COLOR,
 )
 from player import Player
 from level import Level
 from camera import Camera
+from weapons import CyberSword, Pistol
+from enemies import Robot
+from pickups import Pickup
 
 
 class Game:
@@ -31,6 +36,17 @@ class Game:
         self.fall_count = 0
         self._prev_y = self.player.y
 
+        # Combat systems
+        self.weapons = []          # Available weapons [CyberSword, Pistol, ...]
+        self.current_weapon = 0    # Index into self.weapons
+        self.projectiles = []      # Active bullets / energy waves
+        self.enemies = []
+        self.pickups = []
+        self.kills = 0
+
+        self._spawn_pickups()
+        self._spawn_enemies()
+
     def run(self):
         while True:
             self._handle_events()
@@ -50,6 +66,10 @@ class Game:
                     sys.exit()
                 if event.key == pygame.K_r:
                     self._reset()
+                if event.key == pygame.K_z and not self.won:
+                    self._attack()
+                if event.key == pygame.K_x and not self.won:
+                    self._switch_weapon()
 
     def _update(self):
         keys = pygame.key.get_pressed()
@@ -67,6 +87,48 @@ class Game:
         if self.player.y < 150 and self.player.on_ground:
             self.won = True
 
+        # Update weapons
+        for w in self.weapons:
+            w.update()
+
+        # Update projectiles
+        for proj in self.projectiles:
+            proj.update()
+        self.projectiles = [p for p in self.projectiles if p.alive]
+
+        # Update enemies
+        nearby_plats = self.level.get_nearby_platforms(self.player.y, margin=SCREEN_HEIGHT * 2)
+        for enemy in self.enemies:
+            enemy.update(nearby_plats)
+        # Remove dead enemies whose explosion finished
+        self.enemies = [e for e in self.enemies if e.alive or e.death_timer > 0]
+
+        # Projectile-enemy collisions
+        for proj in self.projectiles:
+            if not proj.alive:
+                continue
+            for enemy in self.enemies:
+                if not enemy.alive:
+                    continue
+                if proj.rect.colliderect(enemy.rect):
+                    enemy.take_damage(proj.damage)
+                    proj.alive = False
+                    if not enemy.alive:
+                        self.kills += 1
+                    break
+
+        # Pickup collisions
+        player_rect = self.player.rect
+        for pickup in self.pickups:
+            if pickup.collected:
+                continue
+            if player_rect.colliderect(pickup.rect):
+                self._collect_pickup(pickup)
+
+        # Update pickups (bob animation)
+        for pickup in self.pickups:
+            pickup.update()
+
     def _draw(self):
         self.screen.fill(BG_COLOR)
 
@@ -76,8 +138,27 @@ class Game:
         # Level
         self.level.draw(self.screen, self.camera.y)
 
+        # Pickups
+        for pickup in self.pickups:
+            pickup.draw(self.screen, self.camera.y)
+
+        # Enemies
+        for enemy in self.enemies:
+            enemy.draw(self.screen, self.camera.y)
+
+        # Projectiles
+        for proj in self.projectiles:
+            proj.draw(self.screen, self.camera.y)
+
         # Player
         self.player.draw(self.screen, self.camera.y)
+
+        # Current weapon on player
+        if self.weapons:
+            weapon = self.weapons[self.current_weapon]
+            cx = int(self.player.x) + self.player.width // 2
+            base_y = self.player.y + self.player.height
+            weapon.draw(self.screen, cx, base_y, self.player.facing, self.camera.y)
 
         # Charge bar
         self.player.draw_charge_bar(self.screen)
@@ -157,6 +238,25 @@ class Game:
         peak_fill = int(bar_height * peak_pct)
         pygame.draw.rect(self.screen, PEAK_COLOR, (bar_x - 2, bar_y + bar_height - peak_fill, 14, 2))
 
+        # Kill counter
+        if self.kills > 0:
+            kill_text = f"Kills: {self.kills}"
+            kill_surf = self.font.render(kill_text, True, CYBER_GREEN)
+            self.screen.blit(kill_surf, (10, 70))
+
+        # Weapon indicator
+        if self.weapons:
+            weapon = self.weapons[self.current_weapon]
+            wname = type(weapon).__name__
+            label = "Cyber Sword" if wname == "CyberSword" else "Pistol"
+            if wname == "CyberSword" and weapon.upgraded:
+                label += " [WAVE]"
+            weapon_surf = self.font.render(f"[Z] {label}  [X] Switch", True, SWORD_COLOR)
+            self.screen.blit(weapon_surf, (SCREEN_WIDTH // 2 - weapon_surf.get_width() // 2, SCREEN_HEIGHT - 25))
+        else:
+            hint_surf = self.font.render("Find a weapon!", True, (120, 120, 140))
+            self.screen.blit(hint_surf, (SCREEN_WIDTH // 2 - hint_surf.get_width() // 2, SCREEN_HEIGHT - 25))
+
     def _draw_win(self):
         # Dim overlay
         overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
@@ -170,7 +270,7 @@ class Game:
             (SCREEN_WIDTH // 2 - win_text.get_width() // 2, SCREEN_HEIGHT // 3)
         )
 
-        falls_text = self.med_font.render(f"Falls: {self.fall_count}", True, TEXT_COLOR)
+        falls_text = self.med_font.render(f"Falls: {self.fall_count}  |  Kills: {self.kills}", True, TEXT_COLOR)
         self.screen.blit(
             falls_text,
             (SCREEN_WIDTH // 2 - falls_text.get_width() // 2, SCREEN_HEIGHT // 2)
@@ -191,6 +291,135 @@ class Game:
         self.won = False
         self.fall_count = 0
         self._prev_y = self.player.y
+        self.weapons = []
+        self.current_weapon = 0
+        self.projectiles = []
+        self.enemies = []
+        self.pickups = []
+        self.kills = 0
+        self._spawn_pickups()
+        self._spawn_enemies()
+
+    def _attack(self):
+        """Handle Z key — attack with current weapon."""
+        if not self.weapons:
+            return
+        weapon = self.weapons[self.current_weapon]
+        if not weapon.can_attack():
+            return
+
+        hit_rect, proj = weapon.attack(
+            self.player.x, self.player.y,
+            self.player.width, self.player.height,
+            self.player.facing,
+        )
+
+        # Melee hit check (sword)
+        if hit_rect is not None:
+            for enemy in self.enemies:
+                if enemy.alive and hit_rect.colliderect(enemy.rect):
+                    from settings import SWORD_DAMAGE
+                    enemy.take_damage(SWORD_DAMAGE)
+                    if not enemy.alive:
+                        self.kills += 1
+
+        # Projectile (bullet or energy wave)
+        if proj is not None:
+            self.projectiles.append(proj)
+
+    def _switch_weapon(self):
+        """Handle X key — cycle weapons."""
+        if len(self.weapons) > 1:
+            self.current_weapon = (self.current_weapon + 1) % len(self.weapons)
+
+    def _collect_pickup(self, pickup):
+        """Handle collecting a pickup item."""
+        pickup.collected = True
+
+        if pickup.pickup_type == "sword":
+            # Only add if we don't already have one
+            if not any(isinstance(w, CyberSword) for w in self.weapons):
+                self.weapons.append(CyberSword())
+                self.current_weapon = len(self.weapons) - 1
+
+        elif pickup.pickup_type == "pistol":
+            if not any(isinstance(w, Pistol) for w in self.weapons):
+                self.weapons.append(Pistol())
+                self.current_weapon = len(self.weapons) - 1
+
+        elif pickup.pickup_type == "wave_upgrade":
+            # Upgrade existing sword, or give sword + upgrade
+            sword = None
+            for w in self.weapons:
+                if isinstance(w, CyberSword):
+                    sword = w
+                    break
+            if sword is None:
+                sword = CyberSword()
+                self.weapons.append(sword)
+            sword.upgraded = True
+            # Switch to sword to show off
+            self.current_weapon = self.weapons.index(sword)
+
+    def _spawn_pickups(self):
+        """Place weapon pickups and upgrades on specific platforms."""
+        plats = [p for p in self.level.platforms
+                 if p.rect.width >= 60 and p.rect.y < WORLD_HEIGHT - 50]
+
+        if len(plats) < 5:
+            return
+
+        random.seed(99)  # Deterministic placement
+        random.shuffle(plats)
+
+        # Sword near bottom (easy to find early)
+        bottom_plats = [p for p in plats if p.rect.y > WORLD_HEIGHT * 0.7]
+        if bottom_plats:
+            p = bottom_plats[0]
+            self.pickups.append(Pickup(
+                p.rect.centerx, p.rect.top - 12, "sword"
+            ))
+
+        # Pistol in mid-section
+        mid_plats = [p for p in plats if WORLD_HEIGHT * 0.35 < p.rect.y < WORLD_HEIGHT * 0.65]
+        if mid_plats:
+            p = mid_plats[0]
+            self.pickups.append(Pickup(
+                p.rect.centerx, p.rect.top - 12, "pistol"
+            ))
+
+        # Energy wave upgrade higher up (reward for climbing)
+        high_plats = [p for p in plats if WORLD_HEIGHT * 0.15 < p.rect.y < WORLD_HEIGHT * 0.35]
+        if high_plats:
+            p = high_plats[0]
+            self.pickups.append(Pickup(
+                p.rect.centerx, p.rect.top - 12, "wave_upgrade"
+            ))
+
+    def _spawn_enemies(self):
+        """Place robot enemies on platforms throughout the level."""
+        plats = [p for p in self.level.platforms
+                 if p.rect.width >= 80 and 200 < p.rect.y < WORLD_HEIGHT - 200]
+
+        random.seed(77)  # Deterministic
+        random.shuffle(plats)
+
+        # Place a robot on ~every 5th suitable platform
+        count = 0
+        for i, plat in enumerate(plats):
+            if i % 5 != 0:
+                continue
+            r = plat.rect
+            robot = Robot(
+                x=r.x + 10,
+                y=r.top - 30,
+                patrol_left=r.left + 2,
+                patrol_right=r.right - 2,
+            )
+            self.enemies.append(robot)
+            count += 1
+            if count >= 12:
+                break
 
 
 if __name__ == "__main__":
